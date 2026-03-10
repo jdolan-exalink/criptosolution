@@ -1,0 +1,70 @@
+# ===========================================
+# CriptoSolution - Git Ignore
+# ===========================================
+
+# Environment files (contain secrets)
+**/.env
+**/.env.local
+**/.env.production
+**/.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+.pnpm-debug.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+logs/
+*.logs
+
+# Database (SQLite files if used)
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Docker Compose override (personal configs)
+docker-compose.override.yml
+
+# Test artifacts
+coverage/
+.coverage
+.pytest_cache/
+.test_results/
+
+# Secrets and keys
+*.pem
+*.key
+secrets/

@@ -1,0 +1,228 @@
+version: '3.8'
+
+# ===========================================
+# Unified Docker Compose - CriptoSolution
+# ChatarrinHMM + WandaNarabot
+# ===========================================
+
+services:
+  # ===========================================
+  # CHATARRIN HMM (Market Analyzer)
+  # ===========================================
+  
+  hmm-db:
+    image: postgres:15-alpine
+    container_name: chatarrin_db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=hmm_db
+    volumes:
+      - chatarrin_postgres_data:/var/lib/postgresql/data
+    networks:
+      - chatarrin_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  hmm-redis:
+    image: redis:7-alpine
+    container_name: chatarrin_redis
+    restart: unless-stopped
+    networks:
+      - chatarrin_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  hmm-api:
+    build:
+      context: ./ChatarrinHMM/backend
+      dockerfile: Dockerfile
+    container_name: chatarrin_api
+    restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "9998:8000"
+    volumes:
+      - ./ChatarrinHMM/.env:/app/.env
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@hmm-db:5432/hmm_db
+      - REDIS_URL=redis://hmm-redis:6379/0
+      - MODE=${HMM_MODE:-testnet}
+    depends_on:
+      hmm-db:
+        condition: service_healthy
+      hmm-redis:
+        condition: service_healthy
+    networks:
+      - chatarrin_network
+      - wandanarabot_network
+
+  hmm-worker:
+    build:
+      context: ./ChatarrinHMM/backend
+      dockerfile: Dockerfile
+    container_name: chatarrin_worker
+    restart: unless-stopped
+    command: celery -A app.worker worker -l info
+    volumes:
+      - ./ChatarrinHMM/.env:/app/.env:ro
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@hmm-db:5432/hmm_db
+      - REDIS_URL=redis://hmm-redis:6379/0
+      - MODE=${HMM_MODE:-testnet}
+    depends_on:
+      hmm-db:
+        condition: service_healthy
+      hmm-redis:
+        condition: service_healthy
+    networks:
+      - chatarrin_network
+
+  hmm-frontend:
+    build:
+      context: ./ChatarrinHMM/frontend
+      dockerfile: Dockerfile
+    container_name: chatarrin_frontend
+    restart: unless-stopped
+    ports:
+      - "9999:5173"
+    depends_on:
+      - hmm-api
+    networks:
+      - chatarrin_network
+
+  # ===========================================
+  # WANDANARABOT (Trading Bot)
+  # ===========================================
+  
+  wanda-db:
+    image: postgres:15-alpine
+    container_name: wandanarabot_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: wanda
+      POSTGRES_PASSWORD: wanda_password
+      POSTGRES_DB: wandanarabot
+    volumes:
+      - wandanarabot_postgres_data:/var/lib/postgresql/data
+    networks:
+      - wandanarabot_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wanda -d wandanarabot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  wanda-redis:
+    image: redis:7-alpine
+    container_name: wandanarabot_redis
+    restart: unless-stopped
+    volumes:
+      - wandanarabot_redis_data:/data
+    networks:
+      - wandanarabot_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  wanda-api:
+    build:
+      context: ./WandaNarabot
+      dockerfile: ./apps/api/Dockerfile
+    container_name: wandanarabot_api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://wanda:wanda_password@wanda-db:5432/wandanarabot
+      - REDIS_URL=redis://wanda-redis:6379/0
+      - HMM_API_URL=http://hmm-api:8000/api/v1
+    volumes:
+      - ./WandaNarabot/.env:/app/.env
+    depends_on:
+      wanda-db:
+        condition: service_healthy
+      wanda-redis:
+        condition: service_healthy
+      hmm-api:
+        condition: service_started
+    networks:
+      - wandanarabot_network
+      - chatarrin_network
+
+  wanda-trader:
+    build:
+      context: ./WandaNarabot
+      dockerfile: ./apps/trader/Dockerfile
+    container_name: wandanarabot_trader
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://wanda:wanda_password@wanda-db:5432/wandanarabot
+      - REDIS_URL=redis://wanda-redis:6379/0
+      - HMM_API_URL=http://hmm-api:8000/api/v1
+    volumes:
+      - ./WandaNarabot/.env:/app/.env
+    depends_on:
+      wanda-db:
+        condition: service_healthy
+      wanda-redis:
+        condition: service_healthy
+      hmm-api:
+        condition: service_started
+    networks:
+      - wandanarabot_network
+      - chatarrin_network
+
+  wanda-worker:
+    build:
+      context: ./WandaNarabot
+      dockerfile: ./apps/worker/Dockerfile
+    container_name: wandanarabot_worker
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://wanda:wanda_password@wanda-db:5432/wandanarabot
+      - REDIS_URL=redis://wanda-redis:6379/0
+      - HMM_API_URL=http://hmm-api:8000/api/v1
+    depends_on:
+      wanda-db:
+        condition: service_healthy
+      wanda-redis:
+        condition: service_healthy
+      hmm-api:
+        condition: service_started
+    networks:
+      - wandanarabot_network
+      - chatarrin_network
+
+  wanda-frontend:
+    build:
+      context: ./WandaNarabot/apps/frontend
+      dockerfile: ./Dockerfile
+    container_name: wandanarabot_frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - wanda-api
+    networks:
+      - wandanarabot_network
+
+volumes:
+  chatarrin_postgres_data:
+  wandanarabot_postgres_data:
+  wandanarabot_redis_data:
+
+networks:
+  chatarrin_network:
+    driver: bridge
+  wandanarabot_network:
+    driver: bridge
